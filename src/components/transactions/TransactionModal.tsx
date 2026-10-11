@@ -182,16 +182,17 @@ const TransactionForm: React.FC<FormProps> = ({ initialData, onSave, onClose }) 
       </div>
 
       {/* Category */}
-      <div>
-        <label className="block text-xs font-semibold text-slate-300 mb-1">
+      <fieldset className="border-0 p-0 m-0">
+        <legend className="block text-xs font-semibold text-slate-300 mb-1">
           Category
-        </label>
+        </legend>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {CATEGORIES.map((cat) => (
             <button
               key={cat}
               type="button"
               onClick={() => setCategory(cat)}
+              aria-pressed={category === cat}
               className={`py-2 px-2.5 rounded-xl text-xs font-medium border text-center transition-all cursor-pointer ${
                 category === cat
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500 font-bold'
@@ -202,7 +203,7 @@ const TransactionForm: React.FC<FormProps> = ({ initialData, onSave, onClose }) 
             </button>
           ))}
         </div>
-      </div>
+      </fieldset>
 
       {/* Note */}
       <div>

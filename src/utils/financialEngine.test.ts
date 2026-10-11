@@ -4,10 +4,11 @@ import {
   simulateDecision,
   generate30DayForecast,
   generateActionPlan,
+  calculateDepletionDay,
 } from './financialEngine';
 import { formatINR, parseINR } from './currency';
 import { loadStoredData, resetToDemoData } from './storage';
-import type { Transaction, Commitment, SavingsGoal } from '../types/financial';
+import type { Transaction, Commitment, SavingsGoal, ForecastDay } from '../types/financial';
 
 describe('Financial Calculation Engine', () => {
   it('correctly calculates baseline empty state', () => {
@@ -350,5 +351,191 @@ describe('Financial Calculation Engine', () => {
     const loaded = loadStoredData();
     expect(loaded.transactions.length).toBeGreaterThan(0);
     expect(loaded.commitments.length).toBeGreaterThan(0);
+  });
+
+  it('calculates depletion day correctly when projected balance goes negative and returns null when safe', () => {
+    // Solvent forecast: cash remains positive through Day 30
+    const safeForecast = generate30DayForecast([], [], [], {
+      startingBudget: 10000,
+      currentDay: 12,
+    });
+    const safeDepletion = calculateDepletionDay(safeForecast, 12);
+    expect(safeDepletion).toBeNull();
+
+    // Deficit forecast: large bill on Day 15 causing deficit
+    const deficitCommitments: Commitment[] = [
+      { id: 'huge-bill', name: 'Semester Fee', amount: 15000, dueDate: '2026-10-15', category: 'Bills', isPaid: false, type: 'one-time' },
+    ];
+    const deficitForecast = generate30DayForecast([], deficitCommitments, [], {
+      startingBudget: 10000,
+      currentDay: 12,
+    });
+    const deficitDepletion = calculateDepletionDay(deficitForecast, 12);
+    expect(deficitDepletion).toBe(15);
+  });
+
+  it('dynamically respects currentDay date scrubbing in simulateDecision', () => {
+    // Simulate on Day 25
+    const simDay25 = simulateDecision([], [], [], {
+      type: 'purchase',
+      description: 'Late month expense',
+      amount: 500,
+      category: 'Shopping',
+    }, { startingBudget: 10000, currentDay: 25, totalDays: 30 });
+
+    // Days remaining = 30 - 25 = 5 days
+    expect(simDay25.before.dailyAllowance).toBe(Math.floor(10000 / 5));
+    expect(simDay25.after.dailyAllowance).toBe(Math.floor(9500 / 5));
+    expect(simDay25.delta.spendableBalance).toBe(-500);
+  });
+
+  it('accurately reports depletionDay inside simulation before and after comparisons', () => {
+    // Normal purchase of 2000 does not deplete budget
+    const safeSim = simulateDecision([], [], [], {
+      type: 'purchase',
+      description: 'Shoes',
+      amount: 2000,
+      category: 'Shopping',
+    }, { startingBudget: 10000, currentDay: 12, totalDays: 30 });
+    expect(safeSim.before.depletionDay).toBeNull();
+    expect(safeSim.after.depletionDay).toBeNull();
+
+    // Catastrophic purchase of 15000 causes immediate depletion
+    const crashSim = simulateDecision([], [], [], {
+      type: 'purchase',
+      description: 'Motorcycle down payment',
+      amount: 15000,
+      category: 'Other',
+    }, { startingBudget: 10000, currentDay: 12, totalDays: 30 });
+    expect(crashSim.after.depletionDay).not.toBeNull();
+    expect(crashSim.after.depletionDay).toBeGreaterThanOrEqual(12);
+  });
+
+  it('scales health score benchmarks proportionally for custom starting budgets', () => {
+    // Starting budget = ₹20,000 (surplus benchmark 15% = ₹3,000, buffer 5% = ₹1,000)
+    const summaryCustom = calculateFinancialSummary([], [], [
+      { id: 'cushion', name: 'Vault', targetAmount: 4000, currentAmount: 2500, createdAt: 1 },
+    ], { startingBudget: 20000, currentDay: 10, totalDays: 30 });
+
+    expect(summaryCustom.health.score).toBeGreaterThanOrEqual(60);
+    expect(summaryCustom.health.score).toBeLessThanOrEqual(100);
+  });
+
+  it('correctly handles compact currency formatting for lakhs and thousands', () => {
+    expect(formatINR(1000, { compact: true })).toBe('₹1.0k');
+    expect(formatINR(50000, { compact: true })).toBe('₹50.0k');
+    expect(formatINR(100000, { compact: true })).toBe('₹1.0L');
+    expect(formatINR(250000, { compact: true })).toBe('₹2.5L');
+  });
+
+  it('handles exactly-zero forecast and spendable balance boundaries correctly', () => {
+    // 1. Forecast with balance dropping to exactly 0 on Day 20 (solvent, not depleted)
+    const mockZeroForecast = [
+      { dayNumber: 12, dateStr: '2026-10-12', cashBalance: 500, spendableBalance: 500, actualDailySpend: 0, projectedDailySpend: 100, isPast: false, isToday: true, isFuture: false, commitmentsDue: 0, commitmentsList: [] },
+      { dayNumber: 20, dateStr: '2026-10-20', cashBalance: 0, spendableBalance: 0, actualDailySpend: 0, projectedDailySpend: 100, isPast: false, isToday: false, isFuture: true, commitmentsDue: 0, commitmentsList: [] },
+      { dayNumber: 30, dateStr: '2026-10-30', cashBalance: 0, spendableBalance: 0, actualDailySpend: 0, projectedDailySpend: 0, isPast: false, isToday: false, isFuture: true, commitmentsDue: 0, commitmentsList: [] },
+    ] as ForecastDay[];
+    // Exactly zero balance is solvent (not depleted)
+    expect(calculateDepletionDay(mockZeroForecast, 12)).toBeNull();
+
+    // 2. Forecast where cash drops below 0 (-1) on Day 20 is immediately depleted
+    const mockNegativeForecast = [
+      { dayNumber: 12, dateStr: '2026-10-12', cashBalance: 500, spendableBalance: 500, actualDailySpend: 0, projectedDailySpend: 100, isPast: false, isToday: true, isFuture: false, commitmentsDue: 0, commitmentsList: [] },
+      { dayNumber: 20, dateStr: '2026-10-20', cashBalance: -1, spendableBalance: -1, actualDailySpend: 0, projectedDailySpend: 100, isPast: false, isToday: false, isFuture: true, commitmentsDue: 0, commitmentsList: [] },
+    ] as ForecastDay[];
+    expect(calculateDepletionDay(mockNegativeForecast, 12)).toBe(20);
+
+    // 3. Spending exactly the remaining budget produces exactly 0 spendable balance (affordable, shortfall = 0)
+    const exactBudgetSim = simulateDecision([], [], [], {
+      type: 'purchase',
+      description: 'Spend all cash',
+      amount: 10000,
+      category: 'Other',
+    }, { startingBudget: 10000, currentDay: 12, totalDays: 30 });
+    expect(exactBudgetSim.after.spendableBalance).toBe(0);
+    expect(exactBudgetSim.isAffordable).toBe(true);
+    expect(exactBudgetSim.shortfall).toBe(0);
+
+    // 4. Overspending by ₹1 produces negative spendable balance (not affordable, shortfall = 1)
+    const overspendSim = simulateDecision([], [], [], {
+      type: 'purchase',
+      description: 'Overspend by 1 rupee',
+      amount: 10001,
+      category: 'Other',
+    }, { startingBudget: 10000, currentDay: 12, totalDays: 30 });
+    expect(overspendSim.after.spendableBalance).toBe(-1);
+    expect(overspendSim.isAffordable).toBe(false);
+    expect(overspendSim.shortfall).toBe(1);
+  });
+
+  it('safely handles date boundaries: Day 1, Day 30, and out-of-range clamping', () => {
+    // Day 1 boundary
+    const simDay1 = simulateDecision([], [], [], {
+      type: 'purchase',
+      description: 'Opening day expense',
+      amount: 500,
+      category: 'Food',
+    }, { startingBudget: 10000, currentDay: 1, totalDays: 30 });
+    expect(simDay1.before.dailyAllowance).toBe(Math.floor(10000 / 29)); // 30 - 1 = 29 days remaining
+    expect(simDay1.after.spendableBalance).toBe(9500);
+
+    // Day 30 boundary (final day of month: daysRemaining = 0)
+    const simDay30 = simulateDecision([], [], [], {
+      type: 'purchase',
+      description: 'Final day grocery',
+      amount: 200,
+      category: 'Food',
+    }, { startingBudget: 10000, currentDay: 30, totalDays: 30 });
+    // When daysRemaining <= 0, dailyAllowance equals full remaining spendable balance
+    expect(simDay30.before.dailyAllowance).toBe(10000);
+    expect(simDay30.after.dailyAllowance).toBe(9800);
+    expect(Number.isNaN(simDay30.after.dailyAllowance)).toBe(false);
+
+    // Out-of-range clamping boundary (currentDay > 30 clamped to Day 30)
+    const simClamped = simulateDecision([], [], [], {
+      type: 'purchase',
+      description: 'Clamped expense',
+      amount: 100,
+      category: 'Food',
+    }, { startingBudget: 10000, currentDay: 35, totalDays: 30 });
+    expect(Number.isNaN(simClamped.after.dailyAllowance)).toBe(false);
+
+    // Forecast out-of-range clamping (currentDay: 0 clamped to 1)
+    const forecastClamped = generate30DayForecast([], [], [], {
+      startingBudget: 10000,
+      currentDay: 0,
+    });
+    expect(forecastClamped.length).toBe(30);
+    expect(forecastClamped[0].isToday).toBe(true);
+  });
+
+  it('correctly distinguishes immediate affordability from future belt-tightening recovery', () => {
+    // Scenario 1: Insufficient spendable balance (e.g. ₹500 spendable cash, ₹1,500 purchase)
+    const tightTx: Transaction[] = [
+      { id: 't1', description: 'Rent share', amount: 1500, type: 'expense', category: 'Bills', date: '2026-10-05', createdAt: 1 },
+    ];
+    const deficitSim = simulateDecision(tightTx, [], [], {
+      type: 'purchase',
+      description: 'Course Certification',
+      amount: 1500,
+      category: 'Education',
+    }, { startingBudget: 2000, currentDay: 12, totalDays: 30 });
+
+    // Immediate affordability check: spendableBalance drops from 500 to -1000
+    expect(deficitSim.after.spendableBalance).toBe(-1000);
+    expect(deficitSim.isAffordable).toBe(false);
+    expect(deficitSim.shortfall).toBe(1000);
+
+    // Scenario 2: Sufficient spendable balance (e.g. ₹5,000 spendable cash, ₹1,500 purchase)
+    const solventSim = simulateDecision([], [], [], {
+      type: 'purchase',
+      description: 'Winter Coat',
+      amount: 1500,
+      category: 'Shopping',
+    }, { startingBudget: 5000, currentDay: 12, totalDays: 30 });
+
+    expect(solventSim.after.spendableBalance).toBe(3500);
+    expect(solventSim.isAffordable).toBe(true);
+    expect(solventSim.shortfall).toBe(0);
   });
 });

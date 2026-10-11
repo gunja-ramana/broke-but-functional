@@ -93,6 +93,7 @@ export interface FinancialSummary {
   projectedMonthEndBalance: number; // Estimated cash on day 30
   averageDailySpend: number; // Recorded discretionary spend / days passed
   burnRateRatio: number; // average daily spend vs ideal daily allowance
+  depletionDay?: number | null; // Earliest day (currentDay..30) where running cash drops below 0
   
   health: HealthBreakdown;
 }
@@ -123,6 +124,7 @@ export interface SimulationComparison {
     projectedMonthEnd: number;
     healthScore: number;
     riskLevel: RiskLevel;
+    depletionDay: number | null;
   };
   after: {
     spendableBalance: number;
@@ -131,6 +133,7 @@ export interface SimulationComparison {
     projectedMonthEnd: number;
     healthScore: number;
     riskLevel: RiskLevel;
+    depletionDay: number | null;
   };
   delta: {
     spendableBalance: number;

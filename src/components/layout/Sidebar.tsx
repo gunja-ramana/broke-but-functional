@@ -136,7 +136,7 @@ export const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({
         </div>
 
         {/* Navigation Items */}
-        <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
+        <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto" aria-label="Main sidebar navigation">
           {navItems.map((item) => {
             const isActive = activeTab === item.id;
             return (

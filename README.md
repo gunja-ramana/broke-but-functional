@@ -4,7 +4,7 @@
 
 [![Live Application](https://img.shields.io/badge/Live_Deployment-Vercel-10b981?style=for-the-badge&logo=vercel)](https://broke-but-functional-mu.vercel.app/)
 [![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-1e293b?style=for-the-badge&logo=github)](https://github.com/gunja-ramana/broke-but-functional)
-[![Tests Passing](https://img.shields.io/badge/Vitest-16%2F16_Passed-10b981?style=for-the-badge)](https://vitest.dev/)
+[![Tests Passing](https://img.shields.io/badge/Vitest-24%2F24_Passed-10b981?style=for-the-badge)](https://vitest.dev/)
 [![Linter](https://img.shields.io/badge/Oxlint-0_Warnings-10b981?style=for-the-badge)](https://oxc-project.github.io/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict_Checked-3178c6?style=for-the-badge)](https://www.typescriptlang.org/)
 
@@ -135,18 +135,19 @@ A transparent, non-fabricated heuristic evaluating resilience across 4 distinct 
 
 ### 2. Decision Simulator ("Before You Spend / What-If?")
 * **Preview Without State Mutation**: Test-drive financial moves before committing a single rupee.
-* **6-Dimension Comparison Grid**:
+* **6-Dimension Comparison Grid with Survival Runway**:
   1. Spendable Balance (Before vs. After vs. $\Delta$)
   2. Daily Allowance (Before vs. After vs. $\Delta$)
   3. Ring-Fenced Savings (Before vs. After vs. $\Delta$)
-  4. Projected Month-End Finish (Before vs. After vs. $\Delta$)
-  5. Health Score (Before vs. After vs. $\Delta$)
-  6. Financial Risk Level (Low / Moderate / High / Critical)
-* **Survival Mode: Practical Compensatory Options**:
-  * *Option 1 (Daily Belt-Tightening)*: Exact reduction in daily allowance to absorb the cost over remaining days.
-  * *Option 2 (Subscription Freeze)*: Identifies active unpaid subscriptions that can be deferred to offset the expense.
-  * *Option 3 (Vault Cushion Drawdown)*: Quantifies buffer available from protected savings.
-* **Dual Action Workflow**: Clear "Discard Simulation" (resets preview cleanly) vs. "Apply Decision" (commits to live ledger exactly once).
+  4. Financial Health Score (Before vs. After vs. $\Delta$)
+  5. Financial Risk Level (Low / Moderate / High / Critical)
+  6. Projected Month-End & Survival Runway (e.g. "Projected Solvent (30d+)" vs. "Projected Deficit: Day 21")
+* **Interactive Survival Mode Recovery Engine**:
+  * *Option 1 (Daily Belt-Tightening)*: `[Test Strategy]` button dynamically models how cutting ₹X/day absorbs the cost without deficit.
+  * *Option 2 (Subscription Freeze)*: `[Test Freeze]` button pauses scheduled recurring subscriptions to offset liabilities.
+  * *Option 3 (Vault Cushion Drawdown)*: `[Test Vault]` button buffers the purchase using ring-fenced emergency cushion cash.
+  * *One-Click Reversion*: `[Reset to Base Preview]` toggles back to the uncompensated scenario preview.
+* **Dual Action Workflow**: Clear "Discard Simulation" (resets preview cleanly) vs. "Apply Decision" (commits decision with chosen compensation plan exactly once).
 
 ### 3. Commitments & Subscriptions Manager
 * **Bill Tracking**: Manage fixed bills and recurring streaming subscriptions (WiFi, mobile postpaid, Spotify, hostel catering).
@@ -172,6 +173,31 @@ A transparent, non-fabricated heuristic evaluating resilience across 4 distinct 
 * **Circular Score Gauge (0–100)**: Visual resilience score with Low, Moderate, High, or Critical risk grading.
 * **Transparent Formula Notes**: Explains the exact mathematical weights for each pillar.
 * **Educational Disclaimer**: Explicitly identifies the score as an educational simulation tool rather than formal regulated financial advice.
+
+---
+
+## 🖼️ Application Interface & Feature Walkthrough
+
+The interface is architected into 8 coherent financial views accessible via the responsive sidebar and mobile tab bar:
+
+### 1. Month Survival Dashboard (`/`)
+* **KPI Metrics Row**: Live Spendable Balance, Daily Allowance, Current Cash In Hand, and Protected Vault Reserves.
+* **Allocation Meter**: Proportional progress bar distinguishing recorded spend, unpaid commitments, protected savings, and safe spendable runway.
+* **Daily Spending Engine**: Today's safe spending limit with immediate consequence ripple previews (-₹500 splurge vs +₹200 saved).
+* **Next Best Moves**: Context-sensitive prioritized action moves (commitments due, emergency buffer deficits, discretionary pacing).
+
+### 2. Decision Simulator (`/simulator`)
+* **Interactive What-If Sandbox**: Test discretionary purchases, recurring subscriptions, and income gigs before committing.
+* **6-Dimension Impact Grid**: Side-by-side comparison of Spendable Cash, Daily Allowance, Vault Cushion, Health Score, Risk Level, and Month-End Finish.
+* **Survival Runway Depletion Day**: Visual indicator showing whether the proposed expense projects month-end solvency (Day 30+) or triggers projected cash deficit on Day N.
+* **Interactive Survival Mode Strategies**: One-click preview toggles for *Daily Belt-Tightening*, *Subscription Freeze*, and *Vault Cushion Drawdown*.
+
+### 3. 30-Day Financial Trajectory (`/forecast`)
+* **Interactive Area Chart**: Visual curve of Running Cash Balance vs Spendable Runway across Days 1–30 with "Today" line and scheduled bill milestones.
+* **WCAG 2.1 Tabular Alternative**: Complete accessible data table with column headers, caption, and monotonic daily entries.
+
+### 4. Emergency Expense Triage (`/unexpected`)
+* **Shockwave Simulator**: Models the ripple effect of unexpected emergency shocks (medical, laptop repair, transit surge) across remaining month allowance.
 
 ---
 
@@ -202,19 +228,38 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 ```bash
 npm test
 ```
-Executes the Vitest test suite (`16/16 unit tests passing`).
+Executes the Vitest test suite (`24/24 unit tests passing`):
+```text
+ ✓ src/utils/financialEngine.test.ts (24 tests)
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+   Duration  ~330ms
+```
 
 ### 5. Run Linter
 ```bash
 npm run lint
 ```
-Executes Oxlint across all TypeScript files (`0 errors, 0 warnings`).
+Executes Oxlint across all TypeScript files:
+```text
+Found 0 warnings and 0 errors.
+Finished in ~28ms on 39 files with 116 rules.
+```
 
 ### 6. Build for Production
 ```bash
 npm run build
 ```
-Executes `tsc -b` (strict TypeScript compilation) followed by Vite production bundling.
+Executes `tsc -b` (strict TypeScript compilation) followed by Vite production bundling:
+```text
+dist/index.html                             2.25 kB │ gzip:   0.91 kB
+dist/assets/index.css                      32.24 kB │ gzip:   6.49 kB
+dist/assets/vendor-icons.js                15.13 kB │ gzip:   5.37 kB
+dist/assets/index.js                      159.31 kB │ gzip:  33.58 kB
+dist/assets/vendor-react.js               207.13 kB │ gzip:  64.96 kB
+dist/assets/vendor-charts.js              368.79 kB │ gzip: 107.21 kB
+✓ built in ~610ms
+```
 
 ### 7. Preview Production Build Locally
 ```bash

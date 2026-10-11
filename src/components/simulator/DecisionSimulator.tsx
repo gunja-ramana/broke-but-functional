@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useFinance } from '../../context/useFinance';
 import type {
   ScenarioType,
@@ -6,6 +6,7 @@ import type {
   RecurrenceInterval,
 } from '../../types/financial';
 import { formatINR } from '../../utils/currency';
+import { simulateDecision } from '../../utils/financialEngine';
 import {
   Sparkles,
   ArrowRight,
@@ -85,14 +86,20 @@ const PRESET_SCENARIOS: PresetScenario[] = [
 
 export const DecisionSimulator: React.FC = () => {
   const {
-    summary,
+    transactions,
     commitments,
     savingsGoals,
+    startingBudget,
+    currentDay,
+    totalDays,
+    summary,
     simulationScenario,
     simulationResult,
     runSimulation,
     clearSimulation,
     applySimulation,
+    deleteCommitment,
+    withdrawFromGoal,
     setActiveTab,
   } = useFinance();
 
@@ -103,6 +110,7 @@ export const DecisionSimulator: React.FC = () => {
   const [recurrence, setRecurrence] = useState<RecurrenceInterval>('monthly');
   const [applySuccessMessage, setApplySuccessMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [activeStrategy, setActiveStrategy] = useState<'none' | 'tighten' | 'freeze' | 'vault'>('none');
 
   const handleApplyPreset = (preset: PresetScenario) => {
     setType(preset.type);
@@ -120,6 +128,7 @@ export const DecisionSimulator: React.FC = () => {
       recurrence: preset.recurrence,
       isRecurring: preset.isRecurring,
     });
+    setActiveStrategy('none');
     setApplySuccessMessage(null);
   };
 
@@ -140,13 +149,144 @@ export const DecisionSimulator: React.FC = () => {
       recurrence: type === 'subscription' ? recurrence : undefined,
       isRecurring: type === 'subscription',
     });
+    setActiveStrategy('none');
     setApplySuccessMessage(null);
   };
 
+  const effectiveResult = useMemo(() => {
+    if (!simulationResult || !simulationScenario) return null;
+
+    if (activeStrategy === 'freeze') {
+      const targetSub = commitments.find((c) => !c.isPaid && c.type === 'subscription');
+      if (targetSub) {
+        const compensatedCommitments = commitments.filter((c) => c.id !== targetSub.id);
+        const compensated = simulateDecision(
+          transactions,
+          compensatedCommitments,
+          savingsGoals,
+          simulationScenario,
+          { startingBudget, currentDay, totalDays }
+        );
+        return {
+          ...compensated,
+          recommendation: `Compensated by simulated freeze of ${targetSub.name}: removes ${formatINR(targetSub.amount)} scheduled liability from monthly budget. (Note: Must pause externally with provider).`,
+        };
+      }
+    }
+
+    if (activeStrategy === 'vault') {
+      const targetGoal = savingsGoals[0];
+      const drawAmount = Math.min(simulationScenario.amount, summary.protectedSavings);
+      if (targetGoal && drawAmount > 0) {
+        const compensatedSavings = savingsGoals.map((g, idx) =>
+          idx === 0 ? { ...g, currentAmount: Math.max(0, g.currentAmount - drawAmount) } : g
+        );
+        const compensated = simulateDecision(
+          transactions,
+          commitments,
+          compensatedSavings,
+          simulationScenario,
+          { startingBudget, currentDay, totalDays }
+        );
+        return {
+          ...compensated,
+          recommendation: `Compensated by drawing ${formatINR(drawAmount)} from ${targetGoal.name} emergency cushion.`,
+        };
+      }
+    }
+
+    if (activeStrategy === 'tighten') {
+      const daysLeft = Math.max(1, summary.daysRemaining);
+      const dailyCut = Math.ceil(simulationScenario.amount / daysLeft);
+      const maxPossibleDailyCut = simulationResult.before.dailyAllowance;
+      const effectiveDailyCut = Math.min(dailyCut, maxPossibleDailyCut);
+      const tightenedAllowance = Math.max(0, simulationResult.before.dailyAllowance - dailyCut);
+      const recoveredFutureCash = effectiveDailyCut * daysLeft;
+      const tightenedMonthEnd = Math.min(
+        simulationResult.before.projectedMonthEnd,
+        simulationResult.after.projectedMonthEnd + recoveredFutureCash
+      );
+
+      // Distinguish immediate cash affordability from disciplined future recovery
+      const isImmediatelyAffordable = simulationResult.isAffordable;
+      const immediateShortfall = simulationResult.shortfall;
+
+      return {
+        ...simulationResult,
+        after: {
+          ...simulationResult.after,
+          projectedMonthEnd: tightenedMonthEnd,
+          dailyAllowance: tightenedAllowance,
+          depletionDay: isImmediatelyAffordable
+            ? (tightenedMonthEnd < 0 ? simulationResult.after.depletionDay : null)
+            : simulationResult.after.depletionDay,
+          riskLevel: isImmediatelyAffordable
+            ? (tightenedMonthEnd < 0 ? 'High' : 'Moderate')
+            : 'Critical',
+          healthScore: isImmediatelyAffordable
+            ? Math.min(100, simulationResult.after.healthScore + 10)
+            : simulationResult.after.healthScore,
+        },
+        delta: {
+          ...simulationResult.delta,
+          projectedMonthEnd: tightenedMonthEnd - simulationResult.before.projectedMonthEnd,
+          dailyAllowance: tightenedAllowance - simulationResult.before.dailyAllowance,
+        },
+        isAffordable: isImmediatelyAffordable,
+        shortfall: immediateShortfall,
+        recommendation: isImmediatelyAffordable
+          ? `Compensated by Daily Belt-Tightening: cutting ₹${dailyCut}/day across ${daysLeft} days absorbs this expense and preserves month-end solvency (${formatINR(tightenedMonthEnd)} finish).`
+          : `Daily Belt-Tightening models cutting ₹${dailyCut}/day across ${daysLeft} days to recover budget pace, but does not resolve the immediate ₹${immediateShortfall} cash shortfall today. Vault cushion or incoming funds are required to fund this purchase.`,
+      };
+    }
+
+    return simulationResult;
+  }, [
+    simulationResult,
+    simulationScenario,
+    activeStrategy,
+    commitments,
+    savingsGoals,
+    transactions,
+    startingBudget,
+    currentDay,
+    totalDays,
+    summary.protectedSavings,
+    summary.daysRemaining,
+  ]);
+
   const handleCommit = () => {
+    if (!simulationScenario) return;
+
+    if (activeStrategy === 'vault') {
+      const targetGoal = savingsGoals[0];
+      const drawAmount = Math.min(simulationScenario.amount, summary.protectedSavings);
+      if (targetGoal && drawAmount > 0) {
+        withdrawFromGoal(targetGoal.id, drawAmount);
+      }
+    } else if (activeStrategy === 'freeze') {
+      const targetSub = commitments.find((c) => !c.isPaid && c.type === 'subscription');
+      if (targetSub) {
+        deleteCommitment(targetSub.id);
+      }
+    }
+
     const success = applySimulation();
     if (success) {
-      setApplySuccessMessage('Decision successfully committed to live ledger!');
+      const strategyName =
+        activeStrategy === 'freeze'
+          ? 'Subscription Freeze'
+          : activeStrategy === 'vault'
+          ? 'Vault Cushion Drawdown'
+          : activeStrategy === 'tighten'
+          ? 'Daily Belt-Tightening'
+          : null;
+      setApplySuccessMessage(
+        strategyName
+          ? `Decision committed with ${strategyName} compensation plan!`
+          : 'Decision successfully committed to live ledger!'
+      );
+      setActiveStrategy('none');
       setTimeout(() => setApplySuccessMessage(null), 5000);
     }
   };
@@ -359,7 +499,7 @@ export const DecisionSimulator: React.FC = () => {
 
         {/* Right Column: Live Before-vs-After Comparison */}
         <div className="lg:col-span-7 space-y-4">
-          {!simulationResult ? (
+          {!effectiveResult ? (
             <div className="h-full min-h-[300px] flex flex-col items-center justify-center p-8 rounded-2xl bg-[#0f172a]/90 border border-dashed border-slate-800 text-center space-y-3">
               <div className="w-12 h-12 rounded-2xl bg-slate-800/80 text-emerald-400 flex items-center justify-center">
                 <Sparkles className="w-6 h-6" />
@@ -378,8 +518,8 @@ export const DecisionSimulator: React.FC = () => {
                   </span>
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
                     {simulationScenario?.description}
-                    <Badge variant={simulationResult.isAffordable ? 'emerald' : 'rose'} size="sm">
-                      {simulationResult.isAffordable ? 'Affordable' : 'Deficit Risk'}
+                    <Badge variant={effectiveResult.isAffordable ? 'emerald' : 'rose'} size="sm">
+                      {effectiveResult.isAffordable ? 'Affordable' : 'Deficit Risk'}
                     </Badge>
                   </h3>
                 </div>
@@ -392,6 +532,27 @@ export const DecisionSimulator: React.FC = () => {
                 </div>
               </div>
 
+              {/* Active Strategy Preview Banner */}
+              {activeStrategy !== 'none' && (
+                <div className="p-3 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs flex items-center justify-between animate-in fade-in">
+                  <div className="flex items-center gap-2 font-medium">
+                    <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+                    <span>
+                      Active Strategy Preview: <strong>
+                        {activeStrategy === 'tighten' ? 'Daily Belt-Tightening' : activeStrategy === 'freeze' ? 'Subscription Freeze' : 'Vault Cushion Drawdown'}
+                      </strong>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStrategy('none')}
+                    className="text-[11px] font-mono underline text-purple-300 hover:text-white cursor-pointer ml-2 shrink-0"
+                  >
+                    Reset to Base Preview
+                  </button>
+                </div>
+              )}
+
               {/* Before vs After Comparison Grid (6 Core Financial Impact Dimensions) */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {/* 1. Spendable Balance */}
@@ -400,16 +561,16 @@ export const DecisionSimulator: React.FC = () => {
                     Spendable Balance
                   </span>
                   <div className="flex items-center justify-between text-xs font-mono text-slate-400 mb-1">
-                    <span>Before: {formatINR(simulationResult.before.spendableBalance)}</span>
+                    <span>Before: {formatINR(effectiveResult.before.spendableBalance)}</span>
                   </div>
                   <div className="text-lg font-bold font-mono text-white flex items-baseline justify-between">
-                    <span className={simulationResult.after.spendableBalance < 0 ? 'text-rose-400' : 'text-emerald-400'}>
-                      {formatINR(simulationResult.after.spendableBalance)}
+                    <span className={effectiveResult.after.spendableBalance < 0 ? 'text-rose-400' : 'text-emerald-400'}>
+                      {formatINR(effectiveResult.after.spendableBalance)}
                     </span>
                     <span className={`text-xs font-semibold ${
-                      simulationResult.delta.spendableBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      effectiveResult.delta.spendableBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'
                     }`}>
-                      {simulationResult.delta.spendableBalance >= 0 ? '+' : ''}{formatINR(simulationResult.delta.spendableBalance)}
+                      {effectiveResult.delta.spendableBalance >= 0 ? '+' : ''}{formatINR(effectiveResult.delta.spendableBalance)}
                     </span>
                   </div>
                 </div>
@@ -420,16 +581,16 @@ export const DecisionSimulator: React.FC = () => {
                     Daily Allowance
                   </span>
                   <div className="flex items-center justify-between text-xs font-mono text-slate-400 mb-1">
-                    <span>Before: {formatINR(simulationResult.before.dailyAllowance)}/d</span>
+                    <span>Before: {formatINR(effectiveResult.before.dailyAllowance)}/d</span>
                   </div>
                   <div className="text-lg font-bold font-mono text-white flex items-baseline justify-between">
                     <span className="text-teal-300 font-mono">
-                      {formatINR(simulationResult.after.dailyAllowance)}/d
+                      {formatINR(effectiveResult.after.dailyAllowance)}/d
                     </span>
                     <span className={`text-xs font-semibold ${
-                      simulationResult.delta.dailyAllowance >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      effectiveResult.delta.dailyAllowance >= 0 ? 'text-emerald-400' : 'text-rose-400'
                     }`}>
-                      {simulationResult.delta.dailyAllowance >= 0 ? '+' : ''}{formatINR(simulationResult.delta.dailyAllowance)}/d
+                      {effectiveResult.delta.dailyAllowance >= 0 ? '+' : ''}{formatINR(effectiveResult.delta.dailyAllowance)}/d
                     </span>
                   </div>
                 </div>
@@ -440,23 +601,23 @@ export const DecisionSimulator: React.FC = () => {
                     Protected Savings
                   </span>
                   <div className="flex items-center justify-between text-xs font-mono text-slate-400 mb-1">
-                    <span>Before: {formatINR(simulationResult.before.protectedSavings)}</span>
+                    <span>Before: {formatINR(effectiveResult.before.protectedSavings)}</span>
                   </div>
                   <div className="text-lg font-bold font-mono text-white flex items-baseline justify-between">
                     <span className="text-purple-300 font-mono">
-                      {formatINR(simulationResult.after.protectedSavings)}
+                      {formatINR(effectiveResult.after.protectedSavings)}
                     </span>
                     <span className={`text-xs font-semibold ${
-                      simulationResult.delta.protectedSavings > 0
+                      effectiveResult.delta.protectedSavings > 0
                         ? 'text-purple-300'
-                        : simulationResult.delta.protectedSavings < 0
+                        : effectiveResult.delta.protectedSavings < 0
                         ? 'text-rose-400'
                         : 'text-slate-400'
                     }`}>
-                      {simulationResult.delta.protectedSavings > 0
-                        ? `+${formatINR(simulationResult.delta.protectedSavings)}`
-                        : simulationResult.delta.protectedSavings < 0
-                        ? formatINR(simulationResult.delta.protectedSavings)
+                      {effectiveResult.delta.protectedSavings > 0
+                        ? `+${formatINR(effectiveResult.delta.protectedSavings)}`
+                        : effectiveResult.delta.protectedSavings < 0
+                        ? formatINR(effectiveResult.delta.protectedSavings)
                         : 'Safe'}
                     </span>
                   </div>
@@ -468,14 +629,14 @@ export const DecisionSimulator: React.FC = () => {
                     Health Score
                   </span>
                   <div className="flex items-center justify-between text-xs font-mono text-slate-400 mb-1">
-                    <span>Before: {simulationResult.before.healthScore}/100</span>
+                    <span>Before: {effectiveResult.before.healthScore}/100</span>
                   </div>
                   <div className="text-lg font-bold font-mono text-white flex items-baseline justify-between">
-                    <span>{simulationResult.after.healthScore}/100</span>
+                    <span>{effectiveResult.after.healthScore}/100</span>
                     <span className={`text-xs font-semibold ${
-                      simulationResult.delta.healthScore >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      effectiveResult.delta.healthScore >= 0 ? 'text-emerald-400' : 'text-rose-400'
                     }`}>
-                      {simulationResult.delta.healthScore >= 0 ? '+' : ''}{simulationResult.delta.healthScore} pts
+                      {effectiveResult.delta.healthScore >= 0 ? '+' : ''}{effectiveResult.delta.healthScore} pts
                     </span>
                   </div>
                 </div>
@@ -487,46 +648,61 @@ export const DecisionSimulator: React.FC = () => {
                   </span>
                   <div className="flex items-center gap-1.5 mt-1">
                     <span className="text-xs text-slate-400 font-mono">
-                      {simulationResult.before.riskLevel}
+                      {effectiveResult.before.riskLevel}
                     </span>
                     <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
                     <span className={`text-xs font-bold font-mono ${
-                      simulationResult.after.riskLevel === 'Low'
+                      effectiveResult.after.riskLevel === 'Low'
                         ? 'text-emerald-400'
-                        : simulationResult.after.riskLevel === 'Moderate'
+                        : effectiveResult.after.riskLevel === 'Moderate'
                         ? 'text-amber-400'
                         : 'text-rose-400'
                     }`}>
-                      {simulationResult.after.riskLevel}
+                      {effectiveResult.after.riskLevel}
                     </span>
                   </div>
                 </div>
 
-                {/* 6. Projected Month-End */}
-                <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
-                  <span className="text-[11px] font-semibold text-slate-400 block mb-1">
-                    Projected Month-End
-                  </span>
-                  <div className="flex items-center justify-between text-xs font-mono text-slate-400 mb-1">
-                    <span>Was: {formatINR(simulationResult.before.projectedMonthEnd)}</span>
-                  </div>
-                  <div className="text-lg font-bold font-mono flex items-baseline justify-between">
-                    <span className={simulationResult.after.projectedMonthEnd < 0 ? 'text-rose-400' : 'text-slate-200'}>
-                      {formatINR(simulationResult.after.projectedMonthEnd)}
+                {/* 6. Projected Month-End & Survival Runway */}
+                <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-400 block mb-1">
+                      Projected Month-End
                     </span>
-                    <span className={`text-xs font-semibold ${
-                      simulationResult.delta.projectedMonthEnd >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                    }`}>
-                      {simulationResult.delta.projectedMonthEnd >= 0 ? '+' : ''}{formatINR(simulationResult.delta.projectedMonthEnd)}
+                    <div className="flex items-center justify-between text-xs font-mono text-slate-400 mb-1">
+                      <span>Was: {formatINR(effectiveResult.before.projectedMonthEnd)}</span>
+                    </div>
+                    <div className="text-lg font-bold font-mono flex items-baseline justify-between">
+                      <span className={effectiveResult.after.projectedMonthEnd < 0 ? 'text-rose-400' : 'text-slate-200'}>
+                        {formatINR(effectiveResult.after.projectedMonthEnd)}
+                      </span>
+                      <span className={`text-xs font-semibold ${
+                        effectiveResult.delta.projectedMonthEnd >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
+                        {effectiveResult.delta.projectedMonthEnd >= 0 ? '+' : ''}{formatINR(effectiveResult.delta.projectedMonthEnd)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Depletion Day Horizon */}
+                  <div className="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono">
+                    <span className="text-slate-400">Runway:</span>
+                    <span
+                      title="Based on deterministic 30-day forecast and daily budget adherence"
+                      className={effectiveResult.after.depletionDay !== null ? 'text-rose-400 font-bold' : 'text-emerald-400 font-semibold'}
+                    >
+                      {effectiveResult.after.depletionDay !== null
+                        ? `Projected Deficit: Day ${effectiveResult.after.depletionDay}`
+                        : 'Projected Solvent (30d+)'}
                     </span>
                   </div>
                 </div>
               </div>
 
               {/* Warning / Consequence Callouts */}
-              {simulationResult.warnings.length > 0 && (
+              {effectiveResult.warnings.length > 0 && (
                 <div className="space-y-2">
-                  {simulationResult.warnings.map((warn, i) => (
+                  {effectiveResult.warnings.map((warn, i) => (
                     <div
                       key={i}
                       className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2"
@@ -548,7 +724,7 @@ export const DecisionSimulator: React.FC = () => {
                     Financial Recommendation
                   </span>
                   <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
-                    {simulationResult.recommendation}
+                    {effectiveResult.recommendation}
                   </p>
                 </div>
               </div>
@@ -571,7 +747,7 @@ export const DecisionSimulator: React.FC = () => {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
                     {/* Option 1: Daily Belt-Tightening */}
-                    <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-2">
+                    <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-2.5">
                       <div>
                         <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
                           <span>1. Daily Adjustment</span>
@@ -581,37 +757,69 @@ export const DecisionSimulator: React.FC = () => {
                           Reduce daily spending by <strong className="text-teal-300 font-mono">₹{Math.ceil(simulationScenario.amount / Math.max(1, summary.daysRemaining))}/day</strong> over your remaining {Math.max(1, summary.daysRemaining)} days.
                         </p>
                       </div>
-                      <span className="text-[10px] font-mono text-emerald-400">
-                        Absorbs 100% of expense
-                      </span>
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[10px] font-mono text-emerald-400 block">
+                          Absorbs 100% of expense
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveStrategy(activeStrategy === 'tighten' ? 'none' : 'tighten')}
+                          className={`w-full py-1 px-2 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+                            activeStrategy === 'tighten'
+                              ? 'bg-teal-500 text-slate-950 border-teal-400 shadow-sm'
+                              : 'bg-slate-900 hover:bg-slate-800 text-teal-300 border-teal-500/30 hover:border-teal-400'
+                          }`}
+                        >
+                          {activeStrategy === 'tighten' ? 'Previewing ✓' : 'Test Strategy'}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Option 2: Subscription Freeze */}
-                    <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-2">
-                      <div>
-                        <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
-                          <span>2. Subscription Freeze</span>
-                          <Repeat className="w-3.5 h-3.5 text-purple-400" />
+                    {(() => {
+                      const unpaidSub = commitments.find((c) => !c.isPaid && c.type === 'subscription');
+                      return (
+                        <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-2.5">
+                          <div>
+                            <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
+                              <span>2. Subscription Freeze (Simulated Liability)</span>
+                              <Repeat className="w-3.5 h-3.5 text-purple-400" />
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-relaxed">
+                              {unpaidSub ? (
+                                <>
+                                  Simulates pausing scheduled commitment ({unpaidSub.name}) to free <strong className="text-purple-300 font-mono">{formatINR(unpaidSub.amount)}</strong> in internal budget runway. <em>(Pause externally in provider app)</em>.
+                                </>
+                              ) : (
+                                <>No upcoming subscriptions due this month to freeze.</>
+                              )}
+                            </p>
+                          </div>
+                          <div className="space-y-1.5 pt-1">
+                            <span className="text-[10px] font-mono text-purple-400 block">
+                              {unpaidSub ? `Recovers ${formatINR(unpaidSub.amount)}` : 'No unpaid subs'}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={!unpaidSub}
+                              onClick={() => setActiveStrategy(activeStrategy === 'freeze' ? 'none' : 'freeze')}
+                              className={`w-full py-1 px-2 rounded-lg text-xs font-bold transition-all border ${
+                                !unpaidSub
+                                  ? 'opacity-40 cursor-not-allowed bg-slate-900 border-slate-800 text-slate-500'
+                                  : activeStrategy === 'freeze'
+                                  ? 'bg-purple-500 text-white border-purple-400 shadow-sm cursor-pointer'
+                                  : 'bg-slate-900 hover:bg-slate-800 text-purple-300 border-purple-500/30 hover:border-purple-400 cursor-pointer'
+                              }`}
+                            >
+                              {activeStrategy === 'freeze' ? 'Previewing ✓' : unpaidSub ? 'Test Freeze' : 'No Subs Due'}
+                            </button>
+                          </div>
                         </div>
-                        <p className="text-[11px] text-slate-400 leading-relaxed">
-                          {commitments.some((c) => !c.isPaid && c.type === 'subscription') ? (
-                            <>
-                              Pause upcoming subscription ({commitments.find((c) => !c.isPaid && c.type === 'subscription')?.name}) to recover <strong className="text-purple-300 font-mono">{formatINR(commitments.find((c) => !c.isPaid && c.type === 'subscription')?.amount || 0)}</strong>.
-                            </>
-                          ) : (
-                            <>No upcoming subscriptions due this month to freeze.</>
-                          )}
-                        </p>
-                      </div>
-                      <span className="text-[10px] font-mono text-purple-400">
-                        {commitments.some((c) => !c.isPaid && c.type === 'subscription')
-                          ? `Recovers ${formatINR(commitments.find((c) => !c.isPaid && c.type === 'subscription')?.amount || 0)}`
-                          : 'No unpaid subs'}
-                      </span>
-                    </div>
+                      );
+                    })()}
 
                     {/* Option 3: Vault Cushion */}
-                    <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-2">
+                    <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-2.5">
                       <div>
                         <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
                           <span>3. Vault Cushion</span>
@@ -627,13 +835,29 @@ export const DecisionSimulator: React.FC = () => {
                           )}
                         </p>
                       </div>
-                      <span className="text-[10px] font-mono text-sky-400">
-                        {summary.protectedSavings >= simulationScenario.amount
-                          ? '100% buffer in vault'
-                          : summary.protectedSavings > 0
-                          ? `Buffered by ${formatINR(summary.protectedSavings)}`
-                          : 'Vault empty'}
-                      </span>
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[10px] font-mono text-sky-400 block">
+                          {summary.protectedSavings >= simulationScenario.amount
+                            ? '100% buffer in vault'
+                            : summary.protectedSavings > 0
+                            ? `Buffered by ${formatINR(summary.protectedSavings)}`
+                            : 'Vault empty'}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={summary.protectedSavings === 0}
+                          onClick={() => setActiveStrategy(activeStrategy === 'vault' ? 'none' : 'vault')}
+                          className={`w-full py-1 px-2 rounded-lg text-xs font-bold transition-all border ${
+                            summary.protectedSavings === 0
+                              ? 'opacity-40 cursor-not-allowed bg-slate-900 border-slate-800 text-slate-500'
+                              : activeStrategy === 'vault'
+                              ? 'bg-sky-500 text-slate-950 border-sky-400 shadow-sm cursor-pointer'
+                              : 'bg-slate-900 hover:bg-slate-800 text-sky-300 border-sky-500/30 hover:border-sky-400 cursor-pointer'
+                          }`}
+                        >
+                          {activeStrategy === 'vault' ? 'Previewing ✓' : summary.protectedSavings > 0 ? 'Test Vault' : 'Vault Empty'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -648,13 +872,16 @@ export const DecisionSimulator: React.FC = () => {
                 <div className="flex items-center gap-2.5 w-full sm:w-auto">
                   <Button
                     variant="ghost"
-                    onClick={clearSimulation}
+                    onClick={() => {
+                      setActiveStrategy('none');
+                      clearSimulation();
+                    }}
                     className="flex-1 sm:flex-none"
                   >
                     Discard Simulation
                   </Button>
                   <Button
-                    variant={simulationResult.isAffordable ? 'primary' : 'danger'}
+                    variant={effectiveResult.isAffordable ? 'primary' : 'danger'}
                     icon={<Check className="w-4 h-4" />}
                     onClick={handleCommit}
                     className="flex-1 sm:flex-none"

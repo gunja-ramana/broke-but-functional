@@ -202,10 +202,11 @@ const CommitmentForm: React.FC<FormProps> = ({ initialData, onSave, onClose }) =
           </div>
         ) : (
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Payment Status</label>
+            <span className="block text-xs font-semibold text-slate-300 mb-1">Payment Status</span>
             <div className="flex items-center gap-3 pt-2">
-              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+              <label htmlFor="comm-is-paid" className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                 <input
+                  id="comm-is-paid"
                   type="checkbox"
                   checked={isPaid}
                   onChange={(e) => setIsPaid(e.target.checked)}

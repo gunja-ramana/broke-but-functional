@@ -69,6 +69,14 @@ const MainContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#080d1a] text-slate-100 flex flex-col antialiased">
+      {/* Skip to Main Content Link for Keyboard Accessibility (WCAG 2.4.1) */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:bg-emerald-500 focus:text-slate-950 focus:font-bold focus:rounded-xl focus:shadow-xl focus:outline-none focus:ring-2 focus:ring-white"
+      >
+        Skip to main content
+      </a>
+
       {/* Sidebar for Desktop & Mobile Drawer */}
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
@@ -79,7 +87,7 @@ const MainContent: React.FC = () => {
           onOpenAddTransaction={handleOpenAdd}
         />
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full outline-none">
           {renderActiveView()}
         </main>
       </div>

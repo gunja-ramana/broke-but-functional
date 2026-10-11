@@ -208,17 +208,21 @@ export function calculateFinancialHealth(params: {
 
   // Pillar 4: Burn Rate & Projected Month-End Discipline (Max 20 pts)
   let burnRateDisciplineScore = 0;
-  if (projectedMonthEndBalance >= 1500) {
+  const surplusTarget = startingBudget * 0.15; // Benchmark: 15% surplus (₹1,500 on ₹10k)
+  const bufferTarget = startingBudget * 0.05;  // Benchmark: 5% buffer (₹500 on ₹10k)
+  const deficitScale = Math.max(1, startingBudget * 0.02); // Scales deficit severity (200 on ₹10k)
+
+  if (projectedMonthEndBalance >= surplusTarget) {
     burnRateDisciplineScore = 20;
     insights.push(`Projected to finish the month with ₹${projectedMonthEndBalance} surplus.`);
-  } else if (projectedMonthEndBalance >= 500) {
+  } else if (projectedMonthEndBalance >= bufferTarget) {
     burnRateDisciplineScore = 16;
     insights.push(`Projected month-end cash is positive at ₹${projectedMonthEndBalance}.`);
   } else if (projectedMonthEndBalance >= 0) {
     burnRateDisciplineScore = 10;
     insights.push('Projected month-end balance is near zero. Edge-of-seat survival.');
   } else {
-    burnRateDisciplineScore = Math.max(0, Math.round(10 - Math.min(10, Math.abs(projectedMonthEndBalance) / 200)));
+    burnRateDisciplineScore = Math.max(0, Math.round(10 - Math.min(10, Math.abs(projectedMonthEndBalance) / deficitScale)));
     insights.push(`DEFICIT WARNING: Projected to end the month ₹${Math.abs(projectedMonthEndBalance)} in the red!`);
   }
 
@@ -261,6 +265,22 @@ export function calculateFinancialHealth(params: {
 }
 
 /**
+ * Calculates the first future day number (currentDay..30) where running cash drops below zero.
+ * Returns null if cash remains >= 0 through Day 30 (safe through the month).
+ */
+export function calculateDepletionDay(
+  forecast: ForecastDay[],
+  currentDay: number
+): number | null {
+  for (const day of forecast) {
+    if (day.dayNumber >= currentDay && day.cashBalance < 0) {
+      return day.dayNumber;
+    }
+  }
+  return null;
+}
+
+/**
  * Simulates a proposed financial decision without mutating existing data.
  */
 export function simulateDecision(
@@ -283,7 +303,11 @@ export function simulateDecision(
   const simSavings = currentSavings.map((s) => ({ ...s }));
 
   const now = Date.now();
-  const todayStr = '2026-10-12'; // deterministic date aligned with Day 12
+  const currentDayNum = Math.min(
+    options?.totalDays ?? TOTAL_MONTH_DAYS,
+    Math.max(1, options?.currentDay ?? 12)
+  );
+  const todayStr = `2026-10-${currentDayNum.toString().padStart(2, '0')}`;
 
   if (scenario.type === 'income') {
     simTransactions.push({
@@ -394,6 +418,22 @@ export function simulateDecision(
   const deltaProtectedSavings =
     simulatedSummary.protectedSavings - currentSummary.protectedSavings;
 
+  const beforeForecast = generate30DayForecast(
+    currentTransactions,
+    currentCommitments,
+    currentSavings,
+    options
+  );
+  const beforeDepletion = calculateDepletionDay(beforeForecast, currentSummary.currentDay);
+
+  const afterForecast = generate30DayForecast(
+    simTransactions,
+    simCommitments,
+    simSavings,
+    options
+  );
+  const afterDepletion = calculateDepletionDay(afterForecast, simulatedSummary.currentDay);
+
   return {
     before: {
       spendableBalance: currentSummary.spendableBalance,
@@ -402,6 +442,7 @@ export function simulateDecision(
       projectedMonthEnd: currentSummary.projectedMonthEndBalance,
       healthScore: currentSummary.health.score,
       riskLevel: currentSummary.health.riskLevel,
+      depletionDay: beforeDepletion,
     },
     after: {
       spendableBalance: simulatedSummary.spendableBalance,
@@ -410,6 +451,7 @@ export function simulateDecision(
       projectedMonthEnd: simulatedSummary.projectedMonthEndBalance,
       healthScore: simulatedSummary.health.score,
       riskLevel: simulatedSummary.health.riskLevel,
+      depletionDay: afterDepletion,
     },
     delta: {
       spendableBalance: deltaSpendable,
@@ -435,7 +477,10 @@ export function generate30DayForecast(
   options?: { startingBudget?: number; currentDay?: number }
 ): ForecastDay[] {
   const startingBudget = options?.startingBudget ?? BASELINE_MONTHLY_BUDGET;
-  const currentDay = options?.currentDay ?? 12;
+  const currentDay = Math.min(
+    TOTAL_MONTH_DAYS,
+    Math.max(1, options?.currentDay ?? 12)
+  );
 
   // Group historical transactions by day of month (1-30)
   const expensesByDay: Record<number, number> = {};
