@@ -220,10 +220,11 @@ export const UnexpectedExpenseFlow: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label htmlFor="urg-category" className="block text-xs font-semibold text-slate-300 mb-1">
                 Category
               </label>
               <select
+                id="urg-category"
                 value={category}
                 onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
                 className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:outline-none focus:ring-2 focus:ring-rose-400 cursor-pointer"

@@ -49,7 +49,7 @@ export const OverviewCards: React.FC = () => {
 
         <p className="text-xs text-slate-400 mt-2 leading-relaxed">
           {isSpendableNegative
-            ? `Deficit! You owe ₹${Math.abs(summary.spendableBalance)} more than your cash.`
+            ? `Deficit! You owe ${formatINR(Math.abs(summary.spendableBalance))} more than your cash.`
             : 'Safe money to spend without risking unpaid bills or savings.'}
         </p>
 

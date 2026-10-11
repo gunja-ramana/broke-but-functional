@@ -305,10 +305,11 @@ export const DecisionSimulator: React.FC = () => {
 
             {/* Category */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-slate-300 mb-1" htmlFor="sim-category">
                 Category
               </label>
               <select
+                id="sim-category"
                 value={category}
                 onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
                 className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:ring-2 focus:ring-emerald-400 focus:outline-none cursor-pointer"
@@ -327,10 +328,11 @@ export const DecisionSimulator: React.FC = () => {
             {/* Recurrence if subscription */}
             {type === 'subscription' && (
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-300 mb-1" htmlFor="sim-recurrence">
                   Recurrence
                 </label>
                 <select
+                  id="sim-recurrence"
                   value={recurrence}
                   onChange={(e) => setRecurrence(e.target.value as RecurrenceInterval)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:ring-2 focus:ring-emerald-400 focus:outline-none cursor-pointer"
@@ -347,7 +349,7 @@ export const DecisionSimulator: React.FC = () => {
                 Preview Consequences
               </Button>
               {simulationScenario && (
-                <Button variant="ghost" type="button" onClick={clearSimulation}>
+                <Button variant="ghost" type="button" onClick={clearSimulation} aria-label="Reset simulation preview">
                   <RotateCcw className="w-4 h-4" />
                 </Button>
               )}

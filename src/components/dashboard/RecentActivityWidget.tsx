@@ -42,8 +42,9 @@ export const RecentActivityWidget: React.FC<RecentActivityWidgetProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={onOpenAddModal}
-            className="p-1.5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-colors border border-emerald-500/30"
+            className="p-1.5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-colors border border-emerald-500/30 cursor-pointer"
             title="Add transaction"
+            aria-label="Add transaction"
           >
             <Plus className="w-4 h-4" />
           </button>
