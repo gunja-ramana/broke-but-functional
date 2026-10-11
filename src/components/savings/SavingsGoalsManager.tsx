@@ -39,7 +39,7 @@ export const SavingsGoalsManager: React.FC = () => {
     setIsGoalModalOpen(true);
   };
 
-  const handleSaveGoal = (data: any) => {
+  const handleSaveGoal = (data: Omit<SavingsGoal, 'id' | 'createdAt'>) => {
     if (editingGoal) {
       editSavingsGoal(editingGoal.id, data);
     } else {

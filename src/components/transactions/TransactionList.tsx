@@ -21,6 +21,8 @@ interface TransactionListProps {
   onEditTransaction: (tx: Transaction) => void;
 }
 
+type SortOption = 'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc';
+
 const CATEGORIES: ('All' | ExpenseCategory)[] = [
   'All',
   'Food',
@@ -146,7 +148,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({
 
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) => setSortBy(e.target.value as SortOption)}
               className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
             >
               <option value="date-desc">Newest First</option>

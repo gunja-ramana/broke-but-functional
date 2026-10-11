@@ -24,7 +24,19 @@ export interface StoredAppState {
   currentDay: number;
 }
 
+function isStorageAvailable(): boolean {
+  try {
+    return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  } catch {
+    return false;
+  }
+}
+
 export function loadStoredData(): StoredAppState {
+  if (!isStorageAvailable()) {
+    return resetToDemoData();
+  }
+
   try {
     const isInit = localStorage.getItem(STORAGE_KEYS.INITIALIZED);
     if (!isInit) {
@@ -64,6 +76,10 @@ export function loadStoredData(): StoredAppState {
 }
 
 export function saveStoredData(state: Partial<StoredAppState>): void {
+  if (!isStorageAvailable()) {
+    return;
+  }
+
   try {
     if (state.transactions !== undefined) {
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(state.transactions));
@@ -87,15 +103,17 @@ export function saveStoredData(state: Partial<StoredAppState>): void {
 }
 
 export function resetToDemoData(): StoredAppState {
-  try {
-    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
-    localStorage.setItem(STORAGE_KEYS.COMMITMENTS, JSON.stringify(INITIAL_COMMITMENTS));
-    localStorage.setItem(STORAGE_KEYS.SAVINGS, JSON.stringify(INITIAL_SAVINGS_GOALS));
-    localStorage.setItem(STORAGE_KEYS.BUDGET, JSON.stringify(INITIAL_STARTING_BUDGET));
-    localStorage.setItem(STORAGE_KEYS.CURRENT_DAY, JSON.stringify(CURRENT_DAY_SAMPLE));
-    localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
-  } catch (err) {
-    console.error('Failed to reset demo data in storage:', err);
+  if (isStorageAvailable()) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
+      localStorage.setItem(STORAGE_KEYS.COMMITMENTS, JSON.stringify(INITIAL_COMMITMENTS));
+      localStorage.setItem(STORAGE_KEYS.SAVINGS, JSON.stringify(INITIAL_SAVINGS_GOALS));
+      localStorage.setItem(STORAGE_KEYS.BUDGET, JSON.stringify(INITIAL_STARTING_BUDGET));
+      localStorage.setItem(STORAGE_KEYS.CURRENT_DAY, JSON.stringify(CURRENT_DAY_SAMPLE));
+      localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
+    } catch (err) {
+      console.error('Failed to reset demo data in storage:', err);
+    }
   }
 
   return {

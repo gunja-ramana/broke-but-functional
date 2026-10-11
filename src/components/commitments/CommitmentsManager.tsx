@@ -54,7 +54,7 @@ export const CommitmentsManager: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSaveModal = (data: any) => {
+  const handleSaveModal = (data: Omit<Commitment, 'id'>) => {
     if (editingCommitment) {
       editCommitment(editingCommitment.id, data);
     } else {

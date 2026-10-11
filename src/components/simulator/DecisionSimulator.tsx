@@ -19,6 +19,9 @@ import {
   Zap,
   PlusCircle,
   PiggyBank,
+  ShieldCheck,
+  TrendingDown,
+  Compass,
 } from 'lucide-react';
 import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
@@ -83,6 +86,8 @@ const PRESET_SCENARIOS: PresetScenario[] = [
 export const DecisionSimulator: React.FC = () => {
   const {
     summary,
+    commitments,
+    savingsGoals,
     simulationScenario,
     simulationResult,
     runSimulation,
@@ -545,6 +550,92 @@ export const DecisionSimulator: React.FC = () => {
                   </p>
                 </div>
               </div>
+
+              {/* Survival Mode: Practical Options to Consider */}
+              {simulationScenario && simulationScenario.type !== 'income' && simulationScenario.amount > 0 && (
+                <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Compass className="w-4 h-4 text-emerald-400" /> Survival Mode: Practical Compensatory Options
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {Math.max(1, summary.daysRemaining)} days remaining
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400">
+                    If you commit this proposed expense of {formatINR(simulationScenario.amount)}, here are data-derived strategies to protect your remaining budget:
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
+                    {/* Option 1: Daily Belt-Tightening */}
+                    <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-2">
+                      <div>
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
+                          <span>1. Daily Adjustment</span>
+                          <TrendingDown className="w-3.5 h-3.5 text-teal-400" />
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          Reduce daily spending by <strong className="text-teal-300 font-mono">₹{Math.ceil(simulationScenario.amount / Math.max(1, summary.daysRemaining))}/day</strong> over your remaining {Math.max(1, summary.daysRemaining)} days.
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-400">
+                        Absorbs 100% of expense
+                      </span>
+                    </div>
+
+                    {/* Option 2: Subscription Freeze */}
+                    <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-2">
+                      <div>
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
+                          <span>2. Subscription Freeze</span>
+                          <Repeat className="w-3.5 h-3.5 text-purple-400" />
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          {commitments.some((c) => !c.isPaid && c.type === 'subscription') ? (
+                            <>
+                              Pause upcoming subscription ({commitments.find((c) => !c.isPaid && c.type === 'subscription')?.name}) to recover <strong className="text-purple-300 font-mono">{formatINR(commitments.find((c) => !c.isPaid && c.type === 'subscription')?.amount || 0)}</strong>.
+                            </>
+                          ) : (
+                            <>No upcoming subscriptions due this month to freeze.</>
+                          )}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-mono text-purple-400">
+                        {commitments.some((c) => !c.isPaid && c.type === 'subscription')
+                          ? `Recovers ${formatINR(commitments.find((c) => !c.isPaid && c.type === 'subscription')?.amount || 0)}`
+                          : 'No unpaid subs'}
+                      </span>
+                    </div>
+
+                    {/* Option 3: Vault Cushion */}
+                    <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-2">
+                      <div>
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
+                          <span>3. Vault Cushion</span>
+                          <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          {summary.protectedSavings > 0 ? (
+                            <>
+                              Draw up to <strong className="text-sky-300 font-mono">{formatINR(Math.min(simulationScenario.amount, summary.protectedSavings))}</strong> from {savingsGoals.length > 0 ? savingsGoals[0].name : 'protected vault'} to protect daily spend.
+                            </>
+                          ) : (
+                            <>No protected savings currently available in the vault.</>
+                          )}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-mono text-sky-400">
+                        {summary.protectedSavings >= simulationScenario.amount
+                          ? '100% buffer in vault'
+                          : summary.protectedSavings > 0
+                          ? `Buffered by ${formatINR(summary.protectedSavings)}`
+                          : 'Vault empty'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Clear Two Actions: Apply Decision vs Reset/Cancel */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-800">

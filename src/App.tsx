@@ -31,7 +31,7 @@ const MainContent: React.FC = () => {
     setIsTxModalOpen(true);
   };
 
-  const handleSaveTx = (data: any) => {
+  const handleSaveTx = (data: Omit<Transaction, 'id' | 'createdAt'>) => {
     if (editingTx) {
       editTransaction(editingTx.id, data);
     } else {

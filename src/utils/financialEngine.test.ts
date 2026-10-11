@@ -3,8 +3,10 @@ import {
   calculateFinancialSummary,
   simulateDecision,
   generate30DayForecast,
+  generateActionPlan,
 } from './financialEngine';
 import { formatINR, parseINR } from './currency';
+import { loadStoredData, resetToDemoData } from './storage';
 import type { Transaction, Commitment, SavingsGoal } from '../types/financial';
 
 describe('Financial Calculation Engine', () => {
@@ -271,5 +273,82 @@ describe('Financial Calculation Engine', () => {
     expect(formatINR(-500, { showSign: true })).toBe('-₹500');
     expect(formatINR(15000, { compact: true })).toBe('₹15.0k');
     expect(parseINR('₹2,500')).toBe(2500);
+  });
+
+  it('generates prioritized action moves when facing commitments or deficits', () => {
+    const summary = calculateFinancialSummary([], [
+      { id: 'c1', name: 'Hostel Rent', amount: 4000, dueDate: '2026-10-15', category: 'Bills', isPaid: false, type: 'one-time' },
+    ], [], { startingBudget: 3000, currentDay: 12, totalDays: 30 });
+
+    const moves = generateActionPlan(summary, [
+      { id: 'c1', name: 'Hostel Rent', amount: 4000, dueDate: '2026-10-15', category: 'Bills', isPaid: false, type: 'one-time' },
+    ]);
+
+    expect(moves.length).toBeGreaterThan(0);
+    const highPriorityMove = moves.find((m) => m.priority === 'high');
+    expect(highPriorityMove).toBeDefined();
+  });
+
+  it('safely clamps 4-pillar health score within [0, 100] across extreme conditions', () => {
+    // Huge deficit scenario
+    const summaryDeficit = calculateFinancialSummary([
+      { id: 'e1', description: 'Huge splurge', amount: 25000, type: 'expense', category: 'Shopping', date: '2026-10-02', createdAt: 1 },
+    ], [], [], { startingBudget: 10000, currentDay: 10, totalDays: 30 });
+
+    expect(summaryDeficit.health.score).toBeGreaterThanOrEqual(0);
+    expect(summaryDeficit.health.score).toBeLessThanOrEqual(100);
+    expect(summaryDeficit.health.riskLevel).toBe('Critical');
+
+    // Flawless scenario
+    const summaryPerfect = calculateFinancialSummary([], [], [
+      { id: 's1', name: 'Emergency Cushion', targetAmount: 5000, currentAmount: 3000, createdAt: 1 },
+    ], { startingBudget: 10000, currentDay: 5, totalDays: 30 });
+
+    expect(summaryPerfect.health.score).toBeGreaterThanOrEqual(50);
+    expect(summaryPerfect.health.score).toBeLessThanOrEqual(100);
+  });
+
+  it('correctly models unexpected emergency expense shockwaves', () => {
+    const initialSummary = calculateFinancialSummary([], [], [], {
+      startingBudget: 10000,
+      currentDay: 12,
+      totalDays: 30,
+    });
+    const initialAllowance = initialSummary.recommendedDailyAllowance;
+
+    // Simulate emergency medical shock of ₹1,400
+    const shockResult = simulateDecision([], [], [], {
+      type: 'unexpected',
+      description: 'Emergency Clinic Visit',
+      amount: 1400,
+      category: 'Health',
+    }, { startingBudget: 10000, currentDay: 12, totalDays: 30 });
+
+    expect(shockResult.delta.spendableBalance).toBe(-1400);
+    expect(shockResult.after.dailyAllowance).toBeLessThan(initialAllowance);
+    expect(shockResult.delta.dailyAllowance).toBe(Math.floor((10000 - 1400) / 18) - Math.floor(10000 / 18));
+  });
+
+  it('handles edge case: zero or boundary day inputs safely', () => {
+    const summary = calculateFinancialSummary([], [], [], {
+      startingBudget: 0,
+      currentDay: 35, // clamped to 30
+      totalDays: 30,
+    });
+
+    expect(summary.currentDay).toBe(30);
+    expect(summary.daysRemaining).toBe(0);
+    expect(summary.spendableBalance).toBe(0);
+    expect(summary.recommendedDailyAllowance).toBe(0);
+  });
+
+  it('recovers gracefully from storage reset and corrupted fallback', () => {
+    const demoData = resetToDemoData();
+    expect(demoData.transactions.length).toBeGreaterThan(0);
+    expect(demoData.startingBudget).toBe(10000);
+
+    const loaded = loadStoredData();
+    expect(loaded.transactions.length).toBeGreaterThan(0);
+    expect(loaded.commitments.length).toBeGreaterThan(0);
   });
 });

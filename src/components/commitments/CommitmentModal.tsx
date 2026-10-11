@@ -171,8 +171,9 @@ const CommitmentForm: React.FC<FormProps> = ({ initialData, onSave, onClose }) =
       {/* Category & Recurrence */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-semibold text-slate-300 mb-1">Category</label>
+          <label className="block text-xs font-semibold text-slate-300 mb-1" htmlFor="comm-category">Category</label>
           <select
+            id="comm-category"
             value={category}
             onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
             className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:ring-2 focus:ring-emerald-400 focus:outline-none cursor-pointer"
@@ -187,8 +188,9 @@ const CommitmentForm: React.FC<FormProps> = ({ initialData, onSave, onClose }) =
 
         {type === 'subscription' ? (
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Recurrence</label>
+            <label className="block text-xs font-semibold text-slate-300 mb-1" htmlFor="comm-recurrence">Recurrence</label>
             <select
+              id="comm-recurrence"
               value={recurrence}
               onChange={(e) => setRecurrence(e.target.value as RecurrenceInterval)}
               className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:ring-2 focus:ring-emerald-400 focus:outline-none cursor-pointer"
